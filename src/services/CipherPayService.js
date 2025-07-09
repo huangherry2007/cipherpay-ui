@@ -4,30 +4,8 @@
 // CipherPay Service - Real SDK Integration
 // Can switch between mock and real implementations
 
-// Import SDK with error handling for browser compatibility
-let CipherPaySDK, ChainType, ShieldedNote, ZKProof;
-
-try {
-    // Try to import from the browser bundle first
-    const sdkModule = require('@cipherpay/sdk/dist/cipherpay-sdk.browser.js');
-    CipherPaySDK = sdkModule.CipherPaySDK;
-    ChainType = sdkModule.ChainType;
-    ShieldedNote = sdkModule.ShieldedNote;
-    ZKProof = sdkModule.ZKProof;
-} catch (error) {
-    try {
-        // Fallback to the main bundle
-        const sdkModule = require('@cipherpay/sdk');
-        CipherPaySDK = sdkModule.CipherPaySDK;
-        ChainType = sdkModule.ChainType;
-        ShieldedNote = sdkModule.ShieldedNote;
-        ZKProof = sdkModule.ZKProof;
-    } catch (fallbackError) {
-        console.warn('CipherPay SDK not available in browser environment:', fallbackError.message);
-        // Set defaults for browser environment
-        ChainType = { EVM: 'EVM', Solana: 'Solana' };
-    }
-}
+// Import SDK loader
+import { loadSDK, getSDKStatus } from './sdkLoader';
 
 // Mock implementations for testing when real SDK is not available
 class MockWalletProvider {
@@ -165,9 +143,9 @@ class CipherPayService {
         this.merkleTreeClient = null;
         this.isInitialized = false;
         this.sdk = null;
-        this.useRealSDK = process.env.REACT_APP_USE_REAL_SDK === 'true' && CipherPaySDK;
+        this.useRealSDK = process.env.REACT_APP_USE_REAL_SDK === 'true';
         this.config = {
-            chainType: process.env.REACT_APP_CHAIN_TYPE === 'SOLANA' ? ChainType.Solana : ChainType.EVM,
+            chainType: process.env.REACT_APP_CHAIN_TYPE === 'SOLANA' ? 'solana' : 'ethereum',
             rpcUrl: process.env.REACT_APP_RPC_URL || 'https://eth-mainnet.alchemyapi.io/v2/your-api-key',
             relayerUrl: process.env.REACT_APP_RELAYER_URL || 'https://relayer.cipherpay.com',
             relayerApiKey: process.env.REACT_APP_RELAYER_API_KEY,
@@ -187,14 +165,26 @@ class CipherPayService {
             if (this.useRealSDK) {
                 console.log('Initializing CipherPay SDK...');
 
-                // Initialize the real SDK
-                this.sdk = new CipherPaySDK(this.config);
+                // Wait for SDK to be loaded
+                const { CipherPaySDK, ChainType, sdkInitialized } = await loadSDK();
 
-                // Start event monitoring
-                await this.sdk.startEventMonitoring();
+                if (!sdkInitialized || !CipherPaySDK) {
+                    console.warn('SDK not available, falling back to mock components');
+                    this.useRealSDK = false;
+                } else {
+                    // Initialize the real SDK
+                    this.sdk = new CipherPaySDK(this.config);
 
-                console.log('CipherPay SDK initialized successfully');
-            } else {
+                    // Start event monitoring
+                    await this.sdk.startEventMonitoring();
+
+                    console.log('CipherPay SDK initialized successfully');
+                    this.isInitialized = true;
+                    return;
+                }
+            }
+
+            if (!this.useRealSDK) {
                 console.log('Initializing CipherPay Service with mock components...');
 
                 // Initialize core components with mocks
@@ -283,10 +273,11 @@ class CipherPayService {
         return this.noteManager?.getSpendableNotes() || [];
     }
 
-    async getAllNotes() {
+    getAllNotes() {
         if (this.useRealSDK && this.sdk) {
             try {
-                return await this.sdk.getNotes();
+                // Try to get notes from the real SDK
+                return this.sdk.getNotes ? this.sdk.getNotes() : [];
             } catch (error) {
                 console.error('Failed to get notes via SDK:', error);
                 return [];
@@ -587,7 +578,7 @@ class CipherPayService {
             publicAddress: this.getPublicAddress(),
             balance: this.getBalance(),
             spendableNotes: this.getSpendableNotes().length,
-            totalNotes: this.getAllNotes().then(notes => notes.length).catch(() => 0),
+            totalNotes: this.getAllNotes().length,
             cacheStats: this.getCacheStats(),
             chainType: this.config.chainType,
             useRealSDK: this.useRealSDK

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import cipherPayService from '../services/CipherPayService';
 
 const CipherPayContext = createContext();
@@ -221,9 +221,9 @@ export const CipherPayProvider = ({ children }) => {
     };
 
     // Utility functions
-    const refreshData = () => {
+    const refreshData = useCallback(() => {
         updateServiceStatus();
-    };
+    }, []);
 
     const clearError = () => {
         setError(null);

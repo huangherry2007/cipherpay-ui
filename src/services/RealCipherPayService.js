@@ -102,7 +102,12 @@ class RealCipherPayService {
 
     async getAllNotes() {
         if (!this.isInitialized) await this.initialize();
-        return await this.sdk.getNotes();
+        try {
+            return await this.sdk.getNotes();
+        } catch (error) {
+            console.error('Failed to get notes from SDK:', error);
+            return [];
+        }
     }
 
     getBalance() {
@@ -311,14 +316,15 @@ class RealCipherPayService {
         return this.sdk?.walletProvider && this.getPublicAddress() !== null;
     }
 
-    getServiceStatus() {
+    async getServiceStatus() {
+        const allNotes = await this.getAllNotes();
         return {
             isInitialized: this.isInitialized,
             isConnected: this.isConnected(),
             publicAddress: this.getPublicAddress(),
             balance: this.getBalance(),
             spendableNotes: this.getSpendableNotes().length,
-            totalNotes: this.getAllNotes().then(notes => notes.length).catch(() => 0),
+            totalNotes: allNotes.length,
             cacheStats: this.getCacheStats(),
             chainType: this.config.chainType
         };
