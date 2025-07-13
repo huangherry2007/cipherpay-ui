@@ -1,228 +1,107 @@
-/* eslint-env browser */
-/* global BigInt */
+// CipherPayService - Production/Real SDK Service
+// This service provides full integration with the real CipherPay SDK
+// Used for production environments and real blockchain interactions
+// 
+// Environment Variables:
+// - REACT_APP_USE_REAL_SDK=true: Use this service (default when SDK is available)
+// - REACT_APP_USE_FALLBACK_SERVICE=false: Use this service
+// 
+// Features:
+// - Full SDK integration with Solana blockchain
+// - Real wallet connections and transactions
+// - ZK proof generation and verification
+// - Event monitoring and compliance
+// - Production-ready error handling
 
-// CipherPay Service - Real SDK Integration
-// Can switch between mock and real implementations
-
-// Import SDK loader
+// Import SDK loader to get the global SDK instance
 import { loadSDK, getSDKStatus } from './sdkLoader';
-
-// Mock implementations for testing when real SDK is not available
-class MockWalletProvider {
-    constructor() {
-        this.connected = false;
-        this.address = null;
-    }
-
-    async connect() {
-        this.connected = true;
-        this.address = '0x' + Math.random().toString(16).substr(2, 40);
-        return this.address;
-    }
-
-    async disconnect() {
-        this.connected = false;
-        this.address = null;
-    }
-
-    getPublicAddress() {
-        return this.address;
-    }
-
-    async signAndSendDepositTx(to, value) {
-        return '0x' + Math.random().toString(16).substr(2, 64);
-    }
-}
-
-class MockNoteManager {
-    constructor() {
-        this.notes = [];
-    }
-
-    addNote(note) {
-        this.notes.push(note);
-    }
-
-    getSpendableNotes() {
-        return this.notes.filter(note => !note.spent);
-    }
-
-    getAllNotes() {
-        return this.notes;
-    }
-
-    getBalance() {
-        return this.notes
-            .filter(note => !note.spent)
-            .reduce((total, note) => total + Number(note.amount || 0), 0);
-    }
-}
-
-class MockTransactionBuilder {
-    constructor(noteManager, merkleTreeClient, zkProver) {
-        this.noteManager = noteManager;
-        this.merkleTreeClient = merkleTreeClient;
-        this.zkProver = zkProver;
-    }
-
-    async buildTransfer(recipientPublicKey, amount) {
-        return {
-            recipient: recipientPublicKey,
-            amount: amount,
-            timestamp: Date.now(),
-            id: 'tx_' + Math.random().toString(16).substr(2, 8)
-        };
-    }
-}
-
-class MockZKProver {
-    constructor(wasmPath, zkeyPath) {
-        this.wasmPath = wasmPath;
-        this.zkeyPath = zkeyPath;
-    }
-
-    async generateTransferProof(input) {
-        return {
-            proof: {
-                pi_a: ['0x' + Math.random().toString(16).substr(2, 64)],
-                pi_b: [['0x' + Math.random().toString(16).substr(2, 64)]],
-                pi_c: ['0x' + Math.random().toString(16).substr(2, 64)]
-            },
-            publicSignals: ['0x' + Math.random().toString(16).substr(2, 64)],
-            verifierKey: {}
-        };
-    }
-
-    async verifyProof(proof, publicSignals, verifierKey) {
-        return Math.random() > 0.1; // 90% success rate for testing
-    }
-}
-
-class MockRelayerClient {
-    async sendToRelayer(payload) {
-        return {
-            txHash: '0x' + Math.random().toString(16).substr(2, 64),
-            status: 'pending'
-        };
-    }
-
-    async checkTxStatus(txHash) {
-        const statuses = ['pending', 'success', 'failed'];
-        return statuses[Math.floor(Math.random() * statuses.length)];
-    }
-}
-
-class MockViewKeyManager {
-    exportViewKey() {
-        return '0x' + Math.random().toString(16).substr(2, 64);
-    }
-
-    generateProofOfPayment(note) {
-        return {
-            proof: '0x' + Math.random().toString(16).substr(2, 64),
-            metadata: {
-                noteId: note.commitment,
-                timestamp: Date.now()
-            }
-        };
-    }
-
-    verifyProofOfPayment(proof, note, viewKey) {
-        return Math.random() > 0.1; // 90% success rate for testing
-    }
-}
 
 class CipherPayService {
     constructor() {
-        this.walletProvider = null;
-        this.noteManager = null;
-        this.transactionBuilder = null;
-        this.zkProver = null;
-        this.relayerClient = null;
-        this.viewKeyManager = null;
-        this.merkleTreeClient = null;
-        this.isInitialized = false;
         this.sdk = null;
-        this.useRealSDK = process.env.REACT_APP_USE_REAL_SDK === 'true';
+        this.isInitialized = false;
         this.config = {
-            chainType: process.env.REACT_APP_CHAIN_TYPE === 'SOLANA' ? 'solana' : 'ethereum',
-            rpcUrl: process.env.REACT_APP_RPC_URL || 'https://eth-mainnet.alchemyapi.io/v2/your-api-key',
-            relayerUrl: process.env.REACT_APP_RELAYER_URL || 'https://relayer.cipherpay.com',
+            chainType: 'solana', // Use string instead of ChainType enum
+            rpcUrl: process.env.REACT_APP_RPC_URL || 'http://127.0.0.1:8899',
+            relayerUrl: process.env.REACT_APP_RELAYER_URL || 'http://localhost:3000',
             relayerApiKey: process.env.REACT_APP_RELAYER_API_KEY,
             contractAddress: process.env.REACT_APP_CONTRACT_ADDRESS,
-            enableCompliance: process.env.REACT_APP_ENABLE_COMPLIANCE !== 'false',
-            enableCaching: process.env.REACT_APP_ENABLE_CACHING !== 'false',
-            enableStealthAddresses: process.env.REACT_APP_ENABLE_STEALTH_ADDRESSES !== 'false',
+            programId: 'XeEs3gHZGdDhs3Lm1VoukrWrEnjdC3CA5VRtowN5MGz', // Solana program ID
+            enableCompliance: true,
+            enableCaching: true,
+            enableStealthAddresses: true,
             cacheConfig: {
-                maxSize: parseInt(process.env.REACT_APP_CACHE_MAX_SIZE) || 1000,
-                defaultTTL: parseInt(process.env.REACT_APP_CACHE_DEFAULT_TTL) || 300000
+                maxSize: 1000,
+                defaultTTL: 300000 // 5 minutes
+            },
+            // Add authentication configuration for relayer
+            auth: {
+                email: process.env.REACT_APP_RELAYER_EMAIL,
+                password: process.env.REACT_APP_RELAYER_PASSWORD,
+                apiKey: process.env.REACT_APP_RELAYER_API_KEY
             }
         };
+        console.log('CipherPayService constructor - config:', this.config);
     }
 
     async initialize() {
         try {
-            if (this.useRealSDK) {
-                console.log('Initializing CipherPay SDK...');
+            console.log('Initializing CipherPay SDK...');
 
-                // Wait for SDK to be loaded
-                const { CipherPaySDK, ChainType, sdkInitialized } = await loadSDK();
+            // Load the SDK from global scope
+            const { CipherPaySDK, ChainType, sdkInitialized } = await loadSDK();
 
-                if (!sdkInitialized || !CipherPaySDK) {
-                    console.warn('SDK not available, falling back to mock components');
-                    this.useRealSDK = false;
-                } else {
-                    // Initialize the real SDK
-                    this.sdk = new CipherPaySDK(this.config);
+            if (!sdkInitialized || !CipherPaySDK) {
+                throw new Error('CipherPay SDK not available in global scope');
+            }
 
-                    // Start event monitoring
-                    await this.sdk.startEventMonitoring();
-
-                    console.log('CipherPay SDK initialized successfully');
-                    this.isInitialized = true;
-                    return;
+            // Configure circuit files for browser compatibility
+            const circuitConfig = {
+                transfer: {
+                    wasmUrl: process.env.REACT_APP_TRANSFER_WASM_URL || '/circuits/transfer.wasm',
+                    zkeyUrl: process.env.REACT_APP_TRANSFER_ZKEY_URL || '/circuits/transfer.zkey',
+                    verificationKeyUrl: process.env.REACT_APP_TRANSFER_VKEY_URL || '/circuits/verifier-transfer.json'
+                },
+                merkle: {
+                    wasmUrl: process.env.REACT_APP_MERKLE_WASM_URL || '/circuits/merkle.wasm',
+                    zkeyUrl: process.env.REACT_APP_MERKLE_ZKEY_URL || '/circuits/merkle.zkey',
+                    verificationKeyUrl: process.env.REACT_APP_MERKLE_VKEY_URL || '/circuits/verifier-merkle.json'
+                },
+                withdraw: {
+                    wasmUrl: '/circuits/withdraw.wasm',
+                    zkeyUrl: '/circuits/withdraw.zkey',
+                    verificationKeyUrl: '/circuits/verifier-withdraw.json'
+                },
+                nullifier: {
+                    wasmUrl: '/circuits/nullifier.wasm',
+                    zkeyUrl: '/circuits/nullifier.zkey',
+                    verificationKeyUrl: '/circuits/verifier-nullifier.json'
+                },
+                audit_proof: {
+                    wasmUrl: '/circuits/audit_proof.wasm',
+                    zkeyUrl: '/circuits/audit_proof.zkey',
+                    verificationKeyUrl: '/circuits/verifier-audit_proof.json'
                 }
-            }
+            };
 
-            if (!this.useRealSDK) {
-                console.log('Initializing CipherPay Service with mock components...');
+            // Initialize the SDK with configuration
+            const sdkConfig = {
+                ...this.config,
+                circuitConfig
+            };
+            console.log('Creating SDK instance with config:', JSON.stringify(sdkConfig, null, 2));
+            console.log('Program ID in sdkConfig:', sdkConfig.programId);
 
-                // Initialize core components with mocks
-                this.walletProvider = new MockWalletProvider();
-                this.noteManager = new MockNoteManager();
-                this.zkProver = new MockZKProver('./transfer.wasm', './transfer.zkey');
-                this.relayerClient = new MockRelayerClient();
-                this.viewKeyManager = new MockViewKeyManager();
+            this.sdk = new CipherPaySDK(sdkConfig);
 
-                // Initialize transaction builder with dependencies
-                this.transactionBuilder = new MockTransactionBuilder(
-                    this.noteManager,
-                    this.merkleTreeClient,
-                    this.zkProver
-                );
-
-                // Add some mock notes for testing
-                this.noteManager.addNote({
-                    commitment: '0x' + Math.random().toString(16).substr(2, 64),
-                    nullifier: '0x' + Math.random().toString(16).substr(2, 64),
-                    amount: '1000000000000000000', // 1 ETH
-                    encryptedNote: '',
-                    spent: false
-                });
-
-                this.noteManager.addNote({
-                    commitment: '0x' + Math.random().toString(16).substr(2, 64),
-                    nullifier: '0x' + Math.random().toString(16).substr(2, 64),
-                    amount: '500000000000000000', // 0.5 ETH
-                    encryptedNote: '',
-                    spent: false
-                });
-            }
+            // Temporarily disable event monitoring to avoid errors
+            // await this.sdk.startEventMonitoring();
+            console.log('Event monitoring temporarily disabled');
 
             this.isInitialized = true;
-            console.log('CipherPay Service initialized successfully');
+            console.log('CipherPay SDK initialized successfully');
         } catch (error) {
-            console.error('Failed to initialize CipherPay Service:', error);
+            console.error('Failed to initialize CipherPay SDK:', error);
             throw error;
         }
     }
@@ -231,73 +110,67 @@ class CipherPayService {
     async connectWallet() {
         if (!this.isInitialized) await this.initialize();
 
-        if (this.useRealSDK && this.sdk) {
-            try {
-                await this.sdk.walletProvider.connect();
-                return this.sdk.walletProvider.getPublicAddress();
-            } catch (error) {
-                console.error('Failed to connect wallet via SDK:', error);
-                throw error;
-            }
-        } else {
-            await this.walletProvider.connect();
-            return this.walletProvider.getPublicAddress();
+        try {
+            // Connect to wallet through the SDK
+            const result = await this.sdk.walletProvider.connect();
+            console.log('[CipherPayService] connectWallet: SDK walletProvider.connect() result:', result);
+            return this.sdk.walletProvider.getPublicAddress();
+        } catch (error) {
+            console.error('Failed to connect wallet:', error);
+            throw error;
         }
     }
 
     async disconnectWallet() {
-        if (this.useRealSDK && this.sdk?.walletProvider) {
+        if (this.sdk?.walletProvider) {
             try {
                 await this.sdk.walletProvider.disconnect();
             } catch (error) {
-                console.error('Failed to disconnect wallet via SDK:', error);
+                console.error('Failed to disconnect wallet:', error);
                 throw error;
             }
-        } else if (this.walletProvider) {
-            await this.walletProvider.disconnect();
         }
     }
 
     getPublicAddress() {
-        if (this.useRealSDK && this.sdk) {
-            return this.sdk.walletProvider?.getPublicAddress() || null;
+        try {
+            const address = this.sdk?.walletProvider?.getPublicAddress();
+            console.log('[CipherPayService] getPublicAddress:', address);
+            return address || null;
+        } catch (error) {
+            if (error.message && error.message.includes('No wallet connected')) {
+                return null;
+            }
+            console.error('Error getting public address:', error);
+            return null;
         }
-        return this.walletProvider?.getPublicAddress() || null;
     }
 
     // Note Management
     getSpendableNotes() {
-        if (this.useRealSDK && this.sdk) {
-            return this.sdk.getSpendableNotes() || [];
-        }
-        return this.noteManager?.getSpendableNotes() || [];
+        return this.sdk?.getSpendableNotes() || [];
     }
 
-    getAllNotes() {
-        if (this.useRealSDK && this.sdk) {
-            try {
-                // Try to get notes from the real SDK
-                return this.sdk.getNotes ? this.sdk.getNotes() : [];
-            } catch (error) {
-                console.error('Failed to get notes via SDK:', error);
-                return [];
-            }
+    async getAllNotes() {
+        if (!this.isInitialized) await this.initialize();
+        try {
+            const notes = await this.sdk.getNotes();
+            return Array.isArray(notes) ? notes : [];
+        } catch (error) {
+            console.error('Failed to get notes from SDK:', error);
+            return [];
         }
-        return this.noteManager?.getAllNotes() || [];
     }
 
     getBalance() {
-        if (this.useRealSDK && this.sdk) {
-            return this.sdk.getBalance() || 0n;
-        }
-        return this.noteManager?.getBalance() || 0n;
+        const balance = this.sdk?.getBalance();
+        console.log('[CipherPayService] getBalance:', balance);
+        return balance || 0n;
     }
 
     addNote(note) {
-        if (this.useRealSDK && this.sdk?.noteManager) {
+        if (this.sdk?.noteManager) {
             this.sdk.noteManager.addNote(note);
-        } else {
-            this.noteManager?.addNote(note);
         }
     }
 
@@ -306,41 +179,33 @@ class CipherPayService {
         if (!this.isInitialized) await this.initialize();
 
         try {
-            if (this.useRealSDK && this.sdk) {
-                // Use the SDK's transfer method
-                const transferRequest = {
-                    amount: BigInt(amount),
-                    recipientAddress: recipientPublicKey,
-                    stealthAddress: true,
-                    complianceCheck: true,
-                    metadata: {
-                        timestamp: Date.now(),
-                        source: 'cipherpay-ui'
-                    }
-                };
-
-                const result = await this.sdk.transfer(transferRequest);
-
-                if (!result.success) {
-                    throw new Error(result.error || 'Transfer failed');
-                }
-
-                return {
-                    recipient: recipientPublicKey,
-                    amount: amount,
+            // Use the SDK's transfer method
+            const transferRequest = {
+                amount: BigInt(amount),
+                recipientAddress: recipientPublicKey,
+                stealthAddress: true,
+                complianceCheck: true,
+                metadata: {
                     timestamp: Date.now(),
-                    id: result.txHash,
-                    stealthAddress: result.stealthAddress,
-                    proof: result.proof,
-                    complianceStatus: result.complianceStatus
-                };
-            } else {
-                const transaction = await this.transactionBuilder.buildTransfer(
-                    recipientPublicKey,
-                    amount
-                );
-                return transaction;
+                    source: 'cipherpay-ui'
+                }
+            };
+
+            const result = await this.sdk.transfer(transferRequest);
+
+            if (!result.success) {
+                throw new Error(result.error || 'Transfer failed');
             }
+
+            return {
+                recipient: recipientPublicKey,
+                amount: amount,
+                timestamp: Date.now(),
+                id: result.txHash,
+                stealthAddress: result.stealthAddress,
+                proof: result.proof,
+                complianceStatus: result.complianceStatus
+            };
         } catch (error) {
             console.error('Failed to create transaction:', error);
             throw error;
@@ -351,17 +216,12 @@ class CipherPayService {
         if (!this.isInitialized) await this.initialize();
 
         try {
-            if (this.useRealSDK && this.sdk) {
-                // The transaction is already sent when created via SDK
-                // This method is kept for compatibility with the UI
-                return {
-                    txHash: transaction.id,
-                    status: 'success'
-                };
-            } else {
-                const receipt = await this.relayerClient.sendToRelayer(transaction);
-                return receipt;
-            }
+            // The transaction is already sent when created via SDK
+            // This method is kept for compatibility with the UI
+            return {
+                txHash: transaction.id,
+                status: 'success'
+            };
         } catch (error) {
             console.error('Failed to send transaction:', error);
             throw error;
@@ -372,11 +232,7 @@ class CipherPayService {
         if (!this.isInitialized) await this.initialize();
 
         try {
-            if (this.useRealSDK && this.sdk) {
-                return await this.sdk.relayerClient.checkTxStatus(txHash);
-            } else {
-                return await this.relayerClient.checkTxStatus(txHash);
-            }
+            return await this.sdk.relayerClient.checkTxStatus(txHash);
         } catch (error) {
             console.error('Failed to check transaction status:', error);
             throw error;
@@ -388,19 +244,11 @@ class CipherPayService {
         if (!this.isInitialized) await this.initialize();
 
         try {
-            if (this.useRealSDK && this.sdk) {
-                const txHash = await this.sdk.walletProvider.signAndSendDepositTx(
-                    this.getPublicAddress(),
-                    amount.toString()
-                );
-                return txHash;
-            } else {
-                const txHash = await this.walletProvider.signAndSendDepositTx(
-                    this.getPublicAddress(),
-                    amount
-                );
-                return txHash;
-            }
+            const txHash = await this.sdk.walletProvider.signAndSendDepositTx(
+                this.getPublicAddress(),
+                amount.toString()
+            );
+            return txHash;
         } catch (error) {
             console.error('Failed to create deposit:', error);
             throw error;
@@ -412,13 +260,8 @@ class CipherPayService {
         if (!this.isInitialized) await this.initialize();
 
         try {
-            if (this.useRealSDK && this.sdk) {
-                const proof = await this.sdk.zkProver.generateTransferProof(input);
-                return proof;
-            } else {
-                const proof = await this.zkProver.generateTransferProof(input);
-                return proof;
-            }
+            const proof = await this.sdk.zkProver.generateTransferProof(input);
+            return proof;
         } catch (error) {
             console.error('Failed to generate proof:', error);
             throw error;
@@ -429,11 +272,7 @@ class CipherPayService {
         if (!this.isInitialized) await this.initialize();
 
         try {
-            if (this.useRealSDK && this.sdk) {
-                return await this.sdk.zkProver.verifyProof(proof, publicSignals, verifierKey);
-            } else {
-                return await this.zkProver.verifyProof(proof, publicSignals, verifierKey);
-            }
+            return await this.sdk.zkProver.verifyProof(proof, publicSignals, verifierKey);
         } catch (error) {
             console.error('Failed to verify proof:', error);
             throw error;
@@ -442,24 +281,15 @@ class CipherPayService {
 
     // View Key Management
     exportViewKey() {
-        if (this.useRealSDK && this.sdk) {
-            return this.sdk.viewKeyManager?.exportViewKey() || null;
-        }
-        return this.viewKeyManager?.exportViewKey() || null;
+        return this.sdk?.viewKeyManager?.exportViewKey() || null;
     }
 
     generateProofOfPayment(note) {
-        if (this.useRealSDK && this.sdk) {
-            return this.sdk.viewKeyManager?.generateProofOfPayment(note) || null;
-        }
-        return this.viewKeyManager?.generateProofOfPayment(note) || null;
+        return this.sdk?.viewKeyManager?.generateProofOfPayment(note) || null;
     }
 
     verifyProofOfPayment(proof, note, viewKey) {
-        if (this.useRealSDK && this.sdk) {
-            return this.sdk.viewKeyManager?.verifyProofOfPayment(proof, note, viewKey) || false;
-        }
-        return this.viewKeyManager?.verifyProofOfPayment(proof, note, viewKey) || false;
+        return this.sdk?.viewKeyManager?.verifyProofOfPayment(proof, note, viewKey) || false;
     }
 
     // Merkle Tree Operations
@@ -467,12 +297,7 @@ class CipherPayService {
         if (!this.isInitialized) await this.initialize();
 
         try {
-            if (this.useRealSDK && this.sdk) {
-                return await this.sdk.merkleTreeClient.fetchMerkleRoot();
-            } else if (this.merkleTreeClient) {
-                return await this.merkleTreeClient.fetchMerkleRoot();
-            }
-            return null;
+            return await this.sdk.merkleTreeClient.fetchMerkleRoot();
         } catch (error) {
             console.error('Failed to fetch Merkle root:', error);
             throw error;
@@ -483,12 +308,7 @@ class CipherPayService {
         if (!this.isInitialized) await this.initialize();
 
         try {
-            if (this.useRealSDK && this.sdk) {
-                return await this.sdk.merkleTreeClient.getMerklePath(commitment);
-            } else if (this.merkleTreeClient) {
-                return await this.merkleTreeClient.getMerklePath(commitment);
-            }
-            return null;
+            return await this.sdk.merkleTreeClient.getMerklePath(commitment);
         } catch (error) {
             console.error('Failed to get Merkle path:', error);
             throw error;
@@ -500,31 +320,27 @@ class CipherPayService {
         if (!this.isInitialized) await this.initialize();
 
         try {
-            if (this.useRealSDK && this.sdk) {
-                const withdrawRequest = {
-                    amount: BigInt(amount),
-                    recipientAddress: recipientAddress,
-                    complianceCheck: true,
-                    metadata: {
-                        timestamp: Date.now(),
-                        source: 'cipherpay-ui'
-                    }
-                };
-
-                const result = await this.sdk.withdraw(withdrawRequest);
-
-                if (!result.success) {
-                    throw new Error(result.error || 'Withdrawal failed');
+            const withdrawRequest = {
+                amount: BigInt(amount),
+                recipientAddress: recipientAddress,
+                complianceCheck: true,
+                metadata: {
+                    timestamp: Date.now(),
+                    source: 'cipherpay-ui'
                 }
+            };
 
-                return {
-                    txHash: result.txHash,
-                    proof: result.proof,
-                    complianceStatus: result.complianceStatus
-                };
-            } else {
-                throw new Error('Withdrawal not supported in mock mode');
+            const result = await this.sdk.withdraw(withdrawRequest);
+
+            if (!result.success) {
+                throw new Error(result.error || 'Withdrawal failed');
             }
+
+            return {
+                txHash: result.txHash,
+                proof: result.proof,
+                complianceStatus: result.complianceStatus
+            };
         } catch (error) {
             console.error('Failed to withdraw:', error);
             throw error;
@@ -536,11 +352,7 @@ class CipherPayService {
         if (!this.isInitialized) await this.initialize();
 
         try {
-            if (this.useRealSDK && this.sdk) {
-                return this.sdk.generateComplianceReport(startTime, endTime);
-            } else {
-                throw new Error('Compliance reports not supported in mock mode');
-            }
+            return this.sdk.generateComplianceReport(startTime, endTime);
         } catch (error) {
             console.error('Failed to generate compliance report:', error);
             throw error;
@@ -550,11 +362,38 @@ class CipherPayService {
     // Cache Management
     getCacheStats() {
         if (!this.isInitialized) return null;
+        return this.sdk.getCacheStats();
+    }
 
-        if (this.useRealSDK && this.sdk) {
-            return this.sdk.getCacheStats();
+    // Utility Methods
+    isConnected() {
+        try {
+            // Return true only if walletProvider exists and has a valid public address
+            const address = this.getPublicAddress();
+            return !!(this.sdk?.walletProvider && address && typeof address === 'string' && address.length > 0);
+        } catch (error) {
+            // Handle any errors gracefully
+            return false;
         }
-        return null;
+    }
+
+    async getServiceStatus() {
+        console.log('[CipherPayService] getServiceStatus called (should always log this!)');
+        const allNotes = await this.getAllNotes();
+        const publicAddress = this.getPublicAddress();
+        const balance = this.getBalance();
+        const isConnected = !!(this.sdk?.walletProvider && publicAddress && typeof publicAddress === 'string' && publicAddress.length > 0);
+        console.log('[CipherPayService] getServiceStatus returning:', { isConnected, publicAddress, balance });
+        return {
+            isInitialized: this.isInitialized,
+            isConnected,
+            publicAddress: publicAddress || null,
+            balance,
+            spendableNotes: this.getSpendableNotes().length,
+            totalNotes: allNotes.length,
+            cacheStats: this.getCacheStats(),
+            chainType: this.config.chainType
+        };
     }
 
     // Configuration Management
@@ -563,31 +402,9 @@ class CipherPayService {
         console.log('Configuration updated:', this.config);
     }
 
-    // Utility Methods
-    isConnected() {
-        if (this.useRealSDK && this.sdk) {
-            return this.sdk.walletProvider && this.getPublicAddress() !== null;
-        }
-        return this.walletProvider && this.getPublicAddress() !== null;
-    }
-
-    getServiceStatus() {
-        return {
-            isInitialized: this.isInitialized,
-            isConnected: this.isConnected(),
-            publicAddress: this.getPublicAddress(),
-            balance: this.getBalance(),
-            spendableNotes: this.getSpendableNotes().length,
-            totalNotes: this.getAllNotes().length,
-            cacheStats: this.getCacheStats(),
-            chainType: this.config.chainType,
-            useRealSDK: this.useRealSDK
-        };
-    }
-
     // Cleanup
     async destroy() {
-        if (this.useRealSDK && this.sdk) {
+        if (this.sdk) {
             try {
                 this.sdk.stopEventMonitoring();
                 this.sdk.destroy();
@@ -603,5 +420,5 @@ class CipherPayService {
 
 // Create a singleton instance
 const cipherPayService = new CipherPayService();
-
+export { CipherPayService };
 export default cipherPayService; 

@@ -16,47 +16,67 @@ export async function loadSDK() {
             console.log('❌ Real SDK disabled, using mock components');
             sdkInitialized = false;
             ChainType = { ethereum: 'ethereum', solana: 'solana' };
-            return { CipherPaySDK: null, ChainType, sdkInitialized: false };
+            return { CipherPaySDK: null, ChainType, sdkInitialized };
         }
 
-        try {
-            console.log('🚀 Attempting to load CipherPay SDK...');
+        console.log('🚀 Attempting to load CipherPay SDK...');
+        console.log('🔍 Checking global scope for SDK...');
 
-            // Try to access the SDK from the global scope first (if loaded via script tag)
-            if (window.CipherPaySDK) {
-                console.log('✅ Found CipherPay SDK in global scope');
+        // Log available global objects for debugging
+        const globalObjects = Object.keys(window).filter(key =>
+            key.toLowerCase().includes('cipher') ||
+            key.toLowerCase().includes('sdk') ||
+            key.toLowerCase().includes('pay')
+        );
+        console.log('Available global objects:', globalObjects);
+
+        // Try to load SDK from global scope
+        let attempts = 0;
+        const maxAttempts = 10;
+
+        while (attempts < maxAttempts) {
+            attempts++;
+
+            // Check if SDK is available in global scope
+            if (typeof window.CipherPaySDK !== 'undefined') {
+                console.log('✅ CipherPay SDK found in global scope!');
                 CipherPaySDK = window.CipherPaySDK;
-                ChainType = window.ChainType || { ethereum: 'ethereum', solana: 'solana' };
-                sdkInitialized = true;
-                console.log('🔧 CipherPaySDK constructor:', typeof CipherPaySDK);
-                console.log('📦 Global SDK exports:', Object.keys(window).filter(key => key.includes('CipherPay')));
-            } else {
-                console.log('❌ CipherPay SDK not found in global scope');
-                console.log('🔄 Falling back to mock components');
-                // Set defaults for browser environment
                 ChainType = { ethereum: 'ethereum', solana: 'solana' };
-                sdkInitialized = false;
+                sdkInitialized = true;
+
+                // Test creating an instance
+                try {
+                    const testInstance = new CipherPaySDK({
+                        chainType: 'solana',
+                        rpcUrl: 'http://localhost:8899'
+                    });
+                    console.log('✅ SDK instance created successfully');
+                    return { CipherPaySDK, ChainType, sdkInitialized };
+                } catch (error) {
+                    console.error('❌ Failed to create SDK instance:', error);
+                    sdkInitialized = false;
+                    return { CipherPaySDK: null, ChainType, sdkInitialized };
+                }
             }
-        } catch (error) {
-            console.warn('❌ Error loading CipherPay SDK:', error.message);
-            console.log('🔄 Falling back to mock components');
-            // Set defaults for browser environment
-            ChainType = { ethereum: 'ethereum', solana: 'solana' };
-            sdkInitialized = false;
+
+            console.log(`⏳ SDK not found yet, attempt ${attempts}/${maxAttempts}`);
+            await new Promise(resolve => setTimeout(resolve, 500));
         }
 
-        return { CipherPaySDK, ChainType, sdkInitialized };
+        console.log('❌ CipherPay SDK not found in global scope after all attempts');
+        console.log('🔄 Falling back to mock components');
+        sdkInitialized = false;
+        ChainType = { ethereum: 'ethereum', solana: 'solana' };
+        return { CipherPaySDK: null, ChainType, sdkInitialized };
     })();
 
     return sdkInitPromise;
 }
 
 export function getSDKStatus() {
-    console.log('📊 SDK Status:', {
-        hasSDK: !!CipherPaySDK,
-        hasChainType: !!ChainType,
+    return {
         sdkInitialized,
-        sdkType: typeof CipherPaySDK
-    });
-    return { CipherPaySDK, ChainType, sdkInitialized };
+        hasSDK: CipherPaySDK !== null,
+        hasChainType: ChainType !== null
+    };
 } 

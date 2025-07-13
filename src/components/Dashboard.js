@@ -1,6 +1,8 @@
 import React, { useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useCipherPay } from '../contexts/CipherPayContext';
+import SolanaStatus from './SolanaStatus';
+import SDKStatus from './SDKStatus';
 
 function Dashboard() {
   const navigate = useNavigate();
@@ -47,7 +49,8 @@ function Dashboard() {
   };
 
   const formatBalance = (balance) => {
-    return Number(balance) / 1e18; // Assuming 18 decimals
+    // For Solana, 1 SOL = 1,000,000,000 lamports
+    return Number(balance) / 1e9; // Convert lamports to SOL
   };
 
   if (loading) {
@@ -67,7 +70,7 @@ function Dashboard() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-6">
             <div className="flex items-center">
-              <h1 className="text-2xl font-bold text-gray-900">CipherPay Dashboard</h1>
+              <h1 className="text-2xl font-bold text-gray-900">CipherPay Solana Dashboard</h1>
             </div>
             <div className="flex items-center space-x-4">
               <span className="text-sm text-gray-500">
@@ -107,7 +110,7 @@ function Dashboard() {
               <div className="bg-gray-50 p-4 rounded-lg">
                 <dt className="text-sm font-medium text-gray-500">Shielded Balance</dt>
                 <dd className="mt-1 text-3xl font-semibold text-gray-900">
-                  {formatBalance(balance)} ETH
+                  {formatBalance(balance)} SOL
                 </dd>
               </div>
               <div className="bg-gray-50 p-4 rounded-lg">
@@ -124,6 +127,16 @@ function Dashboard() {
               </div>
             </div>
           </div>
+        </div>
+
+        {/* Solana Integration Status */}
+        <div className="mb-6">
+          <SolanaStatus />
+        </div>
+
+        {/* SDK Status */}
+        <div className="mb-6">
+          <SDKStatus />
         </div>
 
         {/* Quick Actions */}
@@ -234,7 +247,7 @@ function Dashboard() {
                         Note {note.commitment?.slice(0, 8)}...
                       </p>
                       <p className="text-sm text-gray-500">
-                        Amount: {Number(note.amount) / 1e18} ETH
+                        Amount: {Number(note.amount) / 1e9} SOL
                       </p>
                     </div>
                     <span className={`px-2 py-1 text-xs font-medium rounded-full ${note.spent ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'

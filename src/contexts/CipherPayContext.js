@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import cipherPayService from '../services/CipherPayService';
+import cipherPayService from '../services';
 
 const CipherPayContext = createContext();
 
@@ -20,6 +20,7 @@ export const CipherPayProvider = ({ children }) => {
     const [allNotes, setAllNotes] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
+    const [sdk, setSdk] = useState(null);
 
     // Initialize the service
     useEffect(() => {
@@ -29,7 +30,8 @@ export const CipherPayProvider = ({ children }) => {
                 setError(null);
                 await cipherPayService.initialize();
                 setIsInitialized(true);
-                updateServiceStatus();
+                setSdk(cipherPayService.sdk); // Set the SDK from the service
+                await updateServiceStatus();
             } catch (err) {
                 setError(err.message);
                 console.error('Failed to initialize CipherPay service:', err);
@@ -41,33 +43,72 @@ export const CipherPayProvider = ({ children }) => {
         initializeService();
     }, []);
 
-    const updateServiceStatus = () => {
-        if (!cipherPayService.isInitialized) return;
+    const updateServiceStatus = async () => {
+        if (!cipherPayService.isInitialized) {
+            console.log('[CipherPayContext] updateServiceStatus: Service not initialized, skipping');
+            return;
+        }
 
         const status = cipherPayService.getServiceStatus();
-        setIsInitialized(status.isInitialized);
-        setIsConnected(status.isConnected);
-        setPublicAddress(status.publicAddress);
-        setBalance(status.balance);
+        console.log('[CipherPayContext] updateServiceStatus: Raw status from service:', status);
+
+        // Defensive check: only update if we have valid status
+        if (!status) {
+            console.log('[CipherPayContext] updateServiceStatus: No status returned from service, skipping');
+            return;
+        }
+
+        // Only update individual states if the values are not undefined
+        if (status.isConnected !== undefined) {
+            console.log('[CipherPayContext] updateServiceStatus: Setting isConnected to:', status.isConnected);
+            setIsConnected(status.isConnected);
+        }
+
+        if (status.publicAddress !== undefined) {
+            console.log('[CipherPayContext] updateServiceStatus: Setting publicAddress to:', status.publicAddress);
+            setPublicAddress(status.publicAddress);
+        }
+
+        if (status.balance !== undefined) {
+            console.log('[CipherPayContext] updateServiceStatus: Setting balance to:', status.balance);
+            setBalance(status.balance);
+        }
+
+        // Update notes
         setSpendableNotes(cipherPayService.getSpendableNotes());
-        setAllNotes(cipherPayService.getAllNotes());
+        const notes = await cipherPayService.getAllNotes();
+        setAllNotes(Array.isArray(notes) ? notes : []);
+
+        console.log('[CipherPayContext] updateServiceStatus: Final state update complete');
     };
 
     // Wallet Management
     const connectWallet = async () => {
+        console.log('[CipherPayContext] connectWallet: Starting wallet connection...');
         try {
             setLoading(true);
             setError(null);
             const address = await cipherPayService.connectWallet();
+            console.log('[CipherPayContext] connectWallet: SDK returned address:', address);
             setPublicAddress(address);
             setIsConnected(true);
-            updateServiceStatus();
+            console.log('[CipherPayContext] connectWallet: setIsConnected(true), address:', address);
+
+            // Add a small delay to ensure service state is updated
+            console.log('[CipherPayContext] connectWallet: Waiting 100ms for service state to update...');
+            await new Promise(resolve => setTimeout(resolve, 100));
+
+            console.log('[CipherPayContext] connectWallet: About to call updateServiceStatus...');
+            await updateServiceStatus();
+            console.log('[CipherPayContext] connectWallet: updateServiceStatus completed');
             return address;
         } catch (err) {
+            console.error('[CipherPayContext] connectWallet: Error occurred:', err);
             setError(err.message);
             throw err;
         } finally {
             setLoading(false);
+            console.log('[CipherPayContext] connectWallet: Function completed');
         }
     };
 
@@ -78,7 +119,7 @@ export const CipherPayProvider = ({ children }) => {
             await cipherPayService.disconnectWallet();
             setIsConnected(false);
             setPublicAddress(null);
-            updateServiceStatus();
+            await updateServiceStatus();
         } catch (err) {
             setError(err.message);
             throw err;
@@ -107,7 +148,7 @@ export const CipherPayProvider = ({ children }) => {
             setLoading(true);
             setError(null);
             const receipt = await cipherPayService.sendTransaction(transaction);
-            updateServiceStatus(); // Refresh balance and notes
+            await updateServiceStatus(); // Refresh balance and notes
             return receipt;
         } catch (err) {
             setError(err.message);
@@ -133,7 +174,7 @@ export const CipherPayProvider = ({ children }) => {
             setLoading(true);
             setError(null);
             const txHash = await cipherPayService.createDeposit(amount);
-            updateServiceStatus(); // Refresh balance and notes
+            await updateServiceStatus(); // Refresh balance and notes
             return txHash;
         } catch (err) {
             setError(err.message);
@@ -239,6 +280,7 @@ export const CipherPayProvider = ({ children }) => {
         allNotes,
         loading,
         error,
+        sdk,
 
         // Wallet Management
         connectWallet,

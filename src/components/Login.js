@@ -19,7 +19,9 @@ function Login() {
 
   // Redirect to dashboard if already connected
   useEffect(() => {
+    console.log('[Login] useEffect: isConnected =', isConnected);
     if (isConnected) {
+      console.log('[Login] Navigating to /dashboard');
       navigate('/dashboard');
     }
   }, [isConnected, navigate]);
@@ -34,7 +36,9 @@ function Login() {
     try {
       setIsConnecting(true);
       clearError();
+      console.log('[Login] handleWalletConnect: calling connectWallet');
       await connectWallet();
+      console.log('[Login] handleWalletConnect: connectWallet resolved');
       navigate('/dashboard');
     } catch (err) {
       console.error('Failed to connect wallet:', err);

@@ -176,7 +176,7 @@ install_dependencies() {
     print_status "Installing dependencies..."
     
     # Install UI dependencies
-    if [ -f package.json ] then
+    if [ -f package.json ]; then
         echo "Installing UI dependencies..."
         npm install
         print_success "UI dependencies installed"
